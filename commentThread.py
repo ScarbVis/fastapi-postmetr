@@ -1,4 +1,7 @@
 import requests
+from dotenv import load_dotenv
+import os
+
 
 def get_video_comments(api_key, video_id):
     """
@@ -116,7 +119,7 @@ def get_comment_replies(api_key, parent_id):
     return replies
 
 if __name__ == "__main__":
-    API_KEY = "AIzaSyAg256OeOLt1nx5qqxvlZz8em-ZMZzg9Ko"
+    API_KEY = os.getenv('GOOGLE_API_KEY')
     VIDEO_ID = "gLVLTT-kNrw"
 
     comments = get_video_comments(API_KEY, VIDEO_ID)
