@@ -3,9 +3,16 @@ from fastapi import FastAPI, Query
 import os
 from dotenv import load_dotenv
 from commentThread import get_video_comments
+import sentry_sdk
+from sentry_sdk.integrations.asgi import SentryAsgiMiddleware
+
+sentry_sdk.init(
+    dsn=os.getenv('SENTRY_KEY'),
+    traces_sample_rate=1.0
+)
 
 app = FastAPI()
-
+app.add_middleware(SentryAsgiMiddleware)
 
 @app.get("/")
 def read_root():
