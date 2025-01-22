@@ -2,7 +2,7 @@ from typing import Union
 from fastapi import FastAPI, Query
 import os
 from dotenv import load_dotenv
-from commentThread import get_video_comments
+from commentThread import get_video_comments_with_conditional_replies
 
 import sentry_sdk
 from sentry_sdk.integrations.asgi import SentryAsgiMiddleware
@@ -40,5 +40,5 @@ def read_comments(video_id: str = Query(...)):
     if not api_key:
         return {"error": "API key not found in environment variables."}
 
-    comments = get_video_comments(api_key, video_id)
+    comments = get_video_comments_with_conditional_replies(api_key, video_id)
     return {"comments": comments}

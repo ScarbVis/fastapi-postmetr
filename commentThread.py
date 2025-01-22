@@ -1,81 +1,101 @@
 import requests
-from dotenv import load_dotenv
 import os
+from dotenv import load_dotenv
 
+load_dotenv()
 
-def get_video_comments(api_key, video_id):
+# Simple global usage counters
+api_usage = {
+    "commentThreads_calls": 0,
+    "comments_calls": 0
+}
+
+def get_video_comments_with_conditional_replies(api_key, video_id):
     """
-    Ruft alle Kommentare (Top-Level und optional deren Antworten) 
-    für ein gegebenes YouTube-Video ab.
+    Retrieve all top-level comments from a YouTube video using the 'commentThreads' endpoint.
+    Fetch up to 5 replies for each top-level comment from the same call.
+    If totalReplyCount is more than those 5 replies, fetch the remaining replies 
+    via the 'comments' endpoint (in get_remaining_replies).
     """
-
-    # Endpoint für Kommentar-Threads (Top-Level-Kommentare)
     endpoint = "https://www.googleapis.com/youtube/v3/commentThreads"
-
-    # Standard-Parameter für den ersten Request
     params = {
         "key": api_key,
-        "part": "snippet",
+        "part": "snippet,replies",
         "videoId": video_id,
         "textFormat": "plainText",
-        "maxResults": 100,  # maximal 100 pro Seite
+        "maxResults": 100,
         "order": "time"
     }
 
     all_comments = []
 
     while True:
+        # Count this call
+        api_usage["commentThreads_calls"] += 1
+        
         response = requests.get(endpoint, params=params)
         data = response.json()
 
-        # Prüfen, ob die Anfrage erfolgreich war
         if response.status_code != 200:
-            print(f"Fehler beim Abrufen: {data}")
+            print(f"Error fetching commentThreads: {data}")
             break
 
-        # 'items' enthält die Kommentar-Threads
         items = data.get("items", [])
 
         for item in items:
-            # An der "Snippet"-Ebene des Kommentar-Threads hängen Infos
             snippet = item.get("snippet", {})
-            
-            # Top-Level-Kommentar (eigentlicher Text)
-            top_level_comment_data = snippet.get("topLevelComment", {}).get("snippet", {})
-            author = top_level_comment_data.get("authorDisplayName", "Unbekannt")
-            text = top_level_comment_data.get("textDisplay", "")
-            published_at = top_level_comment_data.get("publishedAt", "N/A")
+            top_level_comment = snippet.get("topLevelComment", {})
+            top_level_snippet = top_level_comment.get("snippet", {})
 
+            # Top-level comment info
+            author = top_level_snippet.get("authorDisplayName", "Unknown")
+            text = top_level_snippet.get("textDisplay", "")
+            published_at = top_level_snippet.get("publishedAt", "N/A")
+            total_reply_count = snippet.get("totalReplyCount", 0)
+            parent_comment_id = top_level_comment.get("id")
+
+            # Add the top-level comment
             all_comments.append({
                 "author": author,
                 "text": text,
                 "published_at": published_at,
-                "is_reply": False  # Kennzeichnung, dass es Top-Level ist
+                "is_reply": False
             })
 
-            # Replies, falls vorhanden
-            reply_count = snippet.get("totalReplyCount", 0)
-            if reply_count > 0:
-                # Top-Level-Kommentar-ID
-                parent_id = item.get("snippet", {})\
-                                .get("topLevelComment", {})\
-                                .get("id", "")
+            # Grab the (up to 5) replies included in the current response
+            existing_replies = item.get("replies", {}).get("comments", [])
+            for reply_item in existing_replies:
+                reply_snippet = reply_item.get("snippet", {})
+                r_author = reply_snippet.get("authorDisplayName", "Unknown")
+                r_text = reply_snippet.get("textDisplay", "")
+                r_published_at = reply_snippet.get("publishedAt", "N/A")
 
-                # Replies abrufen
-                replies = get_comment_replies(api_key, parent_id)
-                all_comments.extend(replies)
+                all_comments.append({
+                    "author": r_author,
+                    "text": r_text,
+                    "published_at": r_published_at,
+                    "is_reply": True
+                })
 
-        # Gibt es noch weitere Seiten?
-        if "nextPageToken" in data:
-            params["pageToken"] = data["nextPageToken"]
+            # If the totalReplyCount is more than the (up to) 5 we already got, fetch the rest
+            if total_reply_count > len(existing_replies):
+                extra_replies = get_remaining_replies(api_key, parent_comment_id)
+                all_comments.extend(extra_replies)
+
+        # Paginate if there's a next page
+        next_page_token = data.get("nextPageToken")
+        if next_page_token:
+            params["pageToken"] = next_page_token
         else:
             break
 
     return all_comments
 
-def get_comment_replies(api_key, parent_id):
+
+def get_remaining_replies(api_key, parent_id):
     """
-    Holt alle Replies (Antworten) eines bestimmten Kommentar-Threads.
+    Fetch additional replies (beyond the 5 included in the 'commentThreads' call) 
+    for a given top-level comment. Uses the 'comments' endpoint, paginated if needed.
     """
     endpoint = "https://www.googleapis.com/youtube/v3/comments"
     params = {
@@ -83,49 +103,60 @@ def get_comment_replies(api_key, parent_id):
         "part": "snippet",
         "parentId": parent_id,
         "textFormat": "plainText",
-        "maxResults": 100  # maximal 100 pro Seite
+        "maxResults": 100
     }
 
-    replies = []
-    
+    all_replies = []
     while True:
+        # Count this call
+        api_usage["comments_calls"] += 1
+        
         response = requests.get(endpoint, params=params)
         data = response.json()
 
-        # Prüfen, ob die Anfrage erfolgreich war
         if response.status_code != 200:
-            print(f"Fehler beim Abrufen von Replies: {data}")
+            print(f"Error fetching remaining replies: {data}")
             break
 
         for item in data.get("items", []):
-            snippet = item.get("snippet", {})
-            author = snippet.get("authorDisplayName", "Unbekannt")
-            text = snippet.get("textDisplay", "")
-            published_at = snippet.get("publishedAt", "N/A")
+            reply_snippet = item.get("snippet", {})
+            author = reply_snippet.get("authorDisplayName", "Unknown")
+            text = reply_snippet.get("textDisplay", "")
+            published_at = reply_snippet.get("publishedAt", "N/A")
 
-            replies.append({
+            all_replies.append({
                 "author": author,
                 "text": text,
                 "published_at": published_at,
                 "is_reply": True
             })
 
-        # Falls weitere Seiten existieren
-        if "nextPageToken" in data:
-            params["pageToken"] = data["nextPageToken"]
+        # Check for a next page
+        next_page_token = data.get("nextPageToken")
+        if next_page_token:
+            params["pageToken"] = next_page_token
         else:
             break
 
-    return replies
+    return all_replies
+
 
 if __name__ == "__main__":
-    API_KEY = os.getenv('GOOGLE_API_KEY')
+    API_KEY = os.getenv("GOOGLE_API_KEY")
     VIDEO_ID = "gLVLTT-kNrw"
 
-    comments = get_video_comments(API_KEY, VIDEO_ID)
+    comments = get_video_comments_with_conditional_replies(API_KEY, VIDEO_ID)
 
+    # Print all comments
     for idx, comment in enumerate(comments, start=1):
-        typ = "Reply" if comment["is_reply"] else "Top-Level"
-        print(f"{idx}. [{typ}] {comment['author']}:")
+        ctype = "Reply" if comment["is_reply"] else "Top-Level"
+        print(f"{idx}. [{ctype}] {comment['author']}:")
         print(f"   {comment['text']}")
-        print(f"   (veröffentlicht am {comment['published_at']})\n")
+        print(f"   (published at {comment['published_at']})\n")
+
+    # Show total usage
+    print("=== API Usage Summary ===")
+    print(f"commentThreads endpoint calls: {api_usage['commentThreads_calls']}")
+    print(f"comments endpoint calls      : {api_usage['comments_calls']}")
+    total_calls = api_usage["commentThreads_calls"] + api_usage["comments_calls"]
+    print(f"Total API calls used         : {total_calls}")
