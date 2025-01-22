@@ -78,7 +78,7 @@ def get_video_comments_with_conditional_replies(api_key, video_id):
                 })
 
             # If the totalReplyCount is more than the (up to) 5 we already got, fetch the rest
-            if total_reply_count > len(existing_replies):
+            if total_reply_count > 5:
                 extra_replies = get_remaining_replies(api_key, parent_comment_id)
                 all_comments.extend(extra_replies)
 
