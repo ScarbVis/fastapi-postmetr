@@ -5,6 +5,8 @@ import os
 import certifi
 from textblob import TextBlob
 import nltk
+from mongodb import store_data
+import time
 
 # Set the SSL_CERT_FILE environment variable to Certifi's certificate bundle.
 os.environ["SSL_CERT_FILE"] = certifi.where()
@@ -178,6 +180,8 @@ async def fetch_all_comments(client: httpx.AsyncClient, video_id: str) -> list:
 # ---- FastAPI Endpoint ----
 @app.get("/videos/{video_id}/details")
 async def get_video_details(video_id: str):
+    start_time = time.time()
+
     """
     Fetches filtered video details, channel information, and all top-level comments (with available replies)
     along with sentiment analytics (both TextBlob and VADER) for each comment, for the specified YouTube video.
@@ -205,6 +209,11 @@ async def get_video_details(video_id: str):
             "channel_info": filtered_channel_info,
             "comments": all_comments
         }
+
+    processing_time = time.time() - start_time
+
+    # Store the result with processing time in MongoDB
+    await store_data(result, processing_time)
 
     # Return the result as a downloadable JSON file
     response = JSONResponse(content=result)
