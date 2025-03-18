@@ -1,5 +1,5 @@
 # Use Python 3.13-slim as the base image
-FROM python:3.13-slim
+FROM python:3.11-slim
 
 # Install system dependencies for building Python packages (e.g., numpy)
 RUN apt-get update && \
