@@ -1,37 +1,38 @@
+# Path: /main.py
+
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 import httpx
 import os
 import certifi
+import json  # for writing JSON files
+from datetime import datetime  # for timestamping filenames
+import re  # for slugifying titles
 from textblob import TextBlob
 import nltk
-from mongodb import store_data
+from nltk.sentiment.vader import SentimentIntensityAnalyzer
+from mongodb import store_data  # custom MongoDB storage
 import time
 
 # Set the SSL_CERT_FILE environment variable to Certifi's certificate bundle.
 os.environ["SSL_CERT_FILE"] = certifi.where()
 
-# Now download the VADER lexicon without passing a custom context.
-nltk.download("vader_lexicon")
+# Download VADER lexicon (if not already present).
+nltk.download("vader_lexicon", quiet=True)
 
-from nltk.sentiment.vader import SentimentIntensityAnalyzer
-
-
-# Download VADER lexicon if not already present
-nltk.download('vader_lexicon', quiet=True)
-
-# Initialize VADER sentiment analyzer
+# Initialize VADER sentiment analyzer.
 sia = SentimentIntensityAnalyzer()
 
+# Initialize FastAPI.
 app = FastAPI()
 
-# Load the API key from the environment variable "YOUTUBE_DATA_API_KEY"
+# Load YouTube API key from environment.
 YOUTUBE_DATA_API_KEY = os.getenv("YOUTUBE_DATA_API_KEY")
 if not YOUTUBE_DATA_API_KEY:
     raise RuntimeError("YOUTUBE_DATA_API_KEY environment variable not set.")
 
-
 # ---- Utility Functions ----
+
 def filter_video_info(video_info: dict) -> dict:
     snippet = video_info.get("snippet", {})
     statistics = video_info.get("statistics", {})
@@ -60,10 +61,6 @@ def filter_channel_info(channel_info: dict) -> dict:
 
 
 def analyze_sentiment(text: str) -> dict:
-    """
-    Performs sentiment analysis using both TextBlob and VADER.
-    Returns a dictionary with results from each library.
-    """
     # TextBlob analysis
     blob = TextBlob(text)
     textblob_sentiment = {
@@ -72,7 +69,6 @@ def analyze_sentiment(text: str) -> dict:
     }
     # VADER analysis
     vader_sentiment = sia.polarity_scores(text)
-    
     return {"textblob": textblob_sentiment, "vader": vader_sentiment}
 
 
@@ -85,137 +81,106 @@ def filter_comment(comment: dict) -> dict:
         "text": text,
         "publishedAt": snippet.get("publishedAt"),
         "likeCount": snippet.get("likeCount"),
-        "sentiment": analyze_sentiment(text)  # both TextBlob and VADER results
+        "sentiment": analyze_sentiment(text)
     }
 
-
 # ---- External Service Functions ----
+
 async def fetch_video_info(client: httpx.AsyncClient, video_id: str) -> dict:
     video_url = "https://www.googleapis.com/youtube/v3/videos"
-    video_params = {
+    params = {
         "key": YOUTUBE_DATA_API_KEY,
         "part": "snippet,contentDetails,statistics",
         "id": video_id
     }
-    video_response = await client.get(video_url, params=video_params)
-    if video_response.status_code != 200:
-        raise HTTPException(status_code=video_response.status_code, detail="Error fetching video information")
-    video_data = video_response.json()
-    if not video_data.get("items"):
+    resp = await client.get(video_url, params=params)
+    if resp.status_code != 200:
+        raise HTTPException(status_code=resp.status_code, detail="Error fetching video information")
+    data = resp.json()
+    items = data.get("items")
+    if not items:
         raise HTTPException(status_code=404, detail="Video not found")
-    return video_data["items"][0]
-
+    return items[0]
 
 async def fetch_channel_info(client: httpx.AsyncClient, channel_id: str) -> dict:
     channel_url = "https://www.googleapis.com/youtube/v3/channels"
-    channel_params = {
+    params = {
         "key": YOUTUBE_DATA_API_KEY,
         "part": "snippet,statistics",
         "id": channel_id
     }
-    channel_response = await client.get(channel_url, params=channel_params)
-    if channel_response.status_code != 200:
-        raise HTTPException(status_code=channel_response.status_code, detail="Error fetching channel information")
-    channel_data = channel_response.json()
-    if not channel_data.get("items"):
+    resp = await client.get(channel_url, params=params)
+    if resp.status_code != 200:
+        raise HTTPException(status_code=resp.status_code, detail="Error fetching channel information")
+    data = resp.json()
+    items = data.get("items")
+    if not items:
         raise HTTPException(status_code=404, detail="Channel not found")
-    return channel_data["items"][0]
-
+    return items[0]
 
 async def fetch_all_comments(client: httpx.AsyncClient, video_id: str) -> list:
-    """
-    Fetches all top-level comments (with available replies) for the specified video by handling pagination.
-    Applies sentiment analysis (via TextBlob and VADER) to each comment and reply.
-    """
     comments_url = "https://www.googleapis.com/youtube/v3/commentThreads"
-    comment_params = {
+    params = {
         "key": YOUTUBE_DATA_API_KEY,
         "textFormat": "plainText",
         "part": "snippet,replies",
         "videoId": video_id,
-        "maxResults": 100  # maximum allowed per request
+        "maxResults": 100
     }
-    
     all_comments = []
-    next_page_token = None
-
+    next_token = None
     while True:
-        if next_page_token:
-            comment_params["pageToken"] = next_page_token
-        else:
-            comment_params.pop("pageToken", None)
-        
-        comment_response = await client.get(comments_url, params=comment_params)
-        if comment_response.status_code != 200:
-            raise HTTPException(
-                status_code=comment_response.status_code, 
-                detail="Error fetching comments"
-            )
-        comment_data = comment_response.json()
-        
-        # Process each comment thread
-        for item in comment_data.get("items", []):
-            top_comment_obj = item.get("snippet", {}).get("topLevelComment")
-            if not top_comment_obj:
+        if next_token:
+            params["pageToken"] = next_token
+        resp = await client.get(comments_url, params=params)
+        if resp.status_code != 200:
+            raise HTTPException(status_code=resp.status_code, detail="Error fetching comments")
+        data = resp.json()
+        for item in data.get("items", []):
+            top = item.get("snippet", {}).get("topLevelComment")
+            if not top:
                 continue
-            filtered_top_comment = filter_comment(top_comment_obj)
-            # Process available replies (if any)
+            filtered = filter_comment(top)
             replies = []
-            if "replies" in item:
-                for reply in item["replies"].get("comments", []):
-                    replies.append(filter_comment(reply))
-            all_comments.append({
-                "comment": filtered_top_comment,
-                "replies": replies
-            })
-        
-        # Check for pagination
-        next_page_token = comment_data.get("nextPageToken")
-        if not next_page_token:
+            for reply in item.get("replies", {}).get("comments", []):
+                replies.append(filter_comment(reply))
+            all_comments.append({"comment": filtered, "replies": replies})
+        next_token = data.get("nextPageToken")
+        if not next_token:
             break
-
     return all_comments
-
 
 # ---- FastAPI Endpoint ----
 @app.get("/videos/{video_id}/details")
 async def get_video_details(video_id: str):
     start_time = time.time()
-
-    """
-    Fetches filtered video details, channel information, and all top-level comments (with available replies)
-    along with sentiment analytics (both TextBlob and VADER) for each comment, for the specified YouTube video.
-    The response is returned as a downloadable JSON file.
-    """
     async with httpx.AsyncClient() as client:
-        # 1. Get video information and filter it
-        video_info_raw = await fetch_video_info(client, video_id)
-        filtered_video_info = filter_video_info(video_info_raw)
-
-        # 2. Get channel information using channelId from video info
-        channel_id = video_info_raw.get("snippet", {}).get("channelId")
-        if not channel_id:
-            raise HTTPException(status_code=404, detail="Channel ID not found in video information")
-        channel_info_raw = await fetch_channel_info(client, channel_id)
-        filtered_channel_info = filter_channel_info(channel_info_raw)
-
-        # 3. Get all comments via pagination and perform sentiment analysis
-        all_comments = await fetch_all_comments(client, video_id)
-
-        # Assemble the final result
+        video_raw = await fetch_video_info(client, video_id)
+        video_info = filter_video_info(video_raw)
+        channel_id = video_raw["snippet"]["channelId"]
+        channel_raw = await fetch_channel_info(client, channel_id)
+        channel_info = filter_channel_info(channel_raw)
+        comments = await fetch_all_comments(client, video_id)
         result = {
             "video_id": video_id,
-            "video_info": filtered_video_info,
-            "channel_info": filtered_channel_info,
-            "comments": all_comments
+            "video_info": video_info,
+            "channel_info": channel_info,
+            "comments": comments
         }
-
     processing_time = time.time() - start_time
-
-    # Store the result with processing time in MongoDB
     await store_data(result, processing_time)
 
-    # Return the result as a downloadable JSON file
+    # Generate filename: yyyy-mm-dd_title.json
+    today = datetime.now().strftime("%Y-%m-%d")
+    title = video_info.get("title", "video")
+    slug = re.sub(r"[^\w\-]+", "_", title)
+    filename = f"{today}_{slug}.json"
+    folder = "./data/json"
+    os.makedirs(folder, exist_ok=True)
+    path = os.path.join(folder, filename)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(result, f, ensure_ascii=False, indent=2)
+
     response = JSONResponse(content=result)
-    response.headers["Content-Disposition"] = "attachment; filename=video_details.json"
+    response.headers["Content-Disposition"] = f"attachment; filename={filename}"
     return response
