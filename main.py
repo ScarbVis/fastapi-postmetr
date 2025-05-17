@@ -33,13 +33,14 @@ ENVIRONMENT = os.getenv("ENVIRONMENT", "production").lower()
 # Base origins (from .env or your deployment)
 raw_origins = os.getenv(
     "ALLOWED_ORIGINS",
-    "https://socialdataextract.com,chrome-extension://<YOUR_EXTENSION_ID>"
+    "https://socialdataextract.com,chrome-extension://bahalfjjniacefhcbdlchohjcnbkmakl",
+    "chrome-extension://ncokmpbnihimbgepjinkmhdiiapokgel"
 )
 ALLOWED_ORIGINS = [o.strip() for o in raw_origins.split(",") if o.strip()]
 
 # Auto-whitelist localhost in development
 if ENVIRONMENT != "production":
-    ALLOWED_ORIGINS += ["http://localhost:8000", "http://127.0.0.1:8000"]
+    ALLOWED_ORIGINS += ["http://localhost:8000", "http://127.0.0.1:8000", "chrome-extension://ncokmpbnihimbgepjinkmhdiiapokgel"]
 
 # Per-session rate-limit settings
 SESSION_WINDOW = int(os.getenv("SESSION_WINDOW", "60"))  # seconds
