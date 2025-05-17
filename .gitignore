@@ -1,1 +1,55 @@
+# Path: .gitignore
+
+# --- Python bytecode ---
+
+**pycache**/
+\*.py\[cod]
+\*\$py.class
+
+# --- Virtual environments ---
+
+.venv/
+venv/
+env/
+ENV/
+
+# --- Environment variables ---
+
 .env
+.env.\*
+!.env.example
+
+# --- Distribution / packaging ---
+
+build/
+dist/
+\*.egg-info/
+pip-wheel-metadata/
+
+# --- Testing and coverage ---
+
+.coverage
+htmlcov/
+.tox/
+.nox/
+.pytest\_cache/
+
+# --- Logs and databases ---
+
+\*.log
+\*.sqlite3
+\*.db
+
+# --- Editor settings ---
+
+.vscode/
+.idea/
+\*.swp
+
+# --- HTTPX / httpx cache ---
+
+httpx\_cache.json
+
+# --- Miscellaneous ---
+
+.DS\_Store
