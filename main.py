@@ -36,7 +36,7 @@ ENVIRONMENT = os.getenv("ENVIRONMENT", "production").lower()
 
 raw_origins = os.getenv(
     "ALLOWED_ORIGINS",
-    "https://socialdataextract.com,chrome-extension://bahalfjjniacefhcbdlchohjcnbkmakl,chrome-extension://ncokmpbnihimbgepjinkmhdiiapokgel"
+    "https://socialdataextract.com,chrome-extension://bahalfjjniacefhcbdlchohjcnbkmakl,chrome-extension://ncokmpbnihimbgepjinkmhdiiapokgel,https://next-js-claude.vercel.app/"
 )
 ALLOWED_ORIGINS = [o.strip() for o in raw_origins.split(",") if o.strip()]
 
