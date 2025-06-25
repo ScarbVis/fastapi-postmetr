@@ -21,7 +21,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
 from httpx import AsyncClient
-from mongodb import store_data
+from utils.discord_webhook import send_discord_webhook
 from utils.youtube_utils import (
     fetch_video_info,
     fetch_channel_info,
@@ -141,7 +141,18 @@ async def get_video_details(
         "comments": comments,
     }
     duration = time.time() - start
-    await store_data(result, duration)
+    
+    # Send Discord webhook
+    await send_discord_webhook(
+        video_name=video_info.get("title", "Unknown"),
+        comment_count=len(comments),
+        view_count=int(video_info.get("viewCount", 0)),
+        like_count=int(video_info.get("likeCount", 0)),
+        channel_name=channel_info.get("title", "Unknown"),
+        subscriber_count=int(channel_info.get("subscriberCount", 0)),
+        video_count=int(channel_info.get("videoCount", 0)),
+        processing_time=duration
+    )
 
     # prepare filename
     today    = datetime.now().strftime("%Y-%m-%d")
@@ -177,7 +188,18 @@ async def get_top_comments(
         "comments": comments,
     }
     duration = time.time() - start
-    await store_data(result, duration)
+    
+    # Send Discord webhook
+    await send_discord_webhook(
+        video_name=video_info.get("title", "Unknown"),
+        comment_count=len(comments),
+        view_count=int(video_info.get("viewCount", 0)),
+        like_count=int(video_info.get("likeCount", 0)),
+        channel_name=channel_info.get("title", "Unknown"),
+        subscriber_count=int(channel_info.get("subscriberCount", 0)),
+        video_count=int(channel_info.get("videoCount", 0)),
+        processing_time=duration
+    )
 
     today    = datetime.now().strftime("%Y-%m-%d")
     slug     = re.sub(r"[^\w\-]+", "_", video_info.get("title", "video"))
